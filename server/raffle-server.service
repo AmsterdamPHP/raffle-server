@@ -1,0 +1,9 @@
+[Unit]
+Description=RafflerServer
+
+[Service]
+WorkingDirectory=/var/www/raffle-server/current
+ExecStart=/usr/bin/php /var/www/raffle-server/current/bin/start.php password=RAFFLE_SERVER_HOST_KEY port=RAFFLE_SERVER_PORT > /var/log/raffle-server.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,72 @@
+name: Deploy
+
+on: 
+  push:
+    branches:
+      - main
+    
+jobs:
+  deployment:
+
+    runs-on: ubuntu-latest
+    environment: Production
+    steps:
+    - name: Get current time for Folder
+      uses: josStorer/get-current-time@v2.0.1
+      id: current-time
+      with:
+        format: YYYYMMDDHHMMSS
+    - name: Get current time for Cleanup
+      uses: josStorer/get-current-time@v2.0.1
+      id: current-time-cleanup
+      with:
+        format: YYYYMM
+    - uses: actions/checkout@v3
+    - uses: "shivammathur/setup-php@v2"
+      with:
+        php-version: "8.1"
+    - uses: "ramsey/composer-install@v2"
+    - name: Publish to Server
+      uses: easingthemes/ssh-deploy@main
+      env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_DEPLOY_PRIVATE_KEY }}
+          ARGS: "-rltgoDzvO --delete"
+          SOURCE: "./"
+          REMOTE_HOST: ${{ secrets.DEPLOY_HOST }}
+          REMOTE_USER: ${{ secrets.DEPLOY_USER }}
+          TARGET: ${{ secrets.DEPLOY_RELEASES_FOLDER }}/${{ steps.current-time.outputs.formattedTime }}
+    - name: Deploy on Server
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        key: ${{ secrets.SSH_DEPLOY_PRIVATE_KEY }}
+        username: ${{ secrets.DEPLOY_USER }}
+        script: |
+          sed -i 's/RAFFLE_SERVER_HOST_KEY/${{ secrets.RAFFLE_SERVER_HOST_KEY }}/g' ${{ secrets.DEPLOY_RELEASES_FOLDER }}/${{ steps.current-time.outputs.formattedTime }}/server/raffle-server.service
+          sed -i 's/RAFFLE_SERVER_PORT/${{ secrets.RAFFLE_SERVER_PORT }}/g' ${{ secrets.DEPLOY_RELEASES_FOLDER }}/${{ steps.current-time.outputs.formattedTime }}/server/raffle-server.service
+          rm -Rf ${{ secrets.DEPLOY_CURRENT_PATH }}
+          ln -sf ${{ secrets.DEPLOY_RELEASES_FOLDER }}/${{ steps.current-time.outputs.formattedTime }} ${{ secrets.DEPLOY_CURRENT_PATH }}
+          rm -Rf /etc/systemd/system/raffle-server.service
+          cp -f ${{ secrets.DEPLOY_RELEASES_FOLDER }}/${{ steps.current-time.outputs.formattedTime }}/server/raffle-server.service /etc/systemd/system/raffle-server.service
+          systemctl daemon-reload
+          service raffle-server restart 
+    - name: Validate Host Conf
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        key: ${{ secrets.SSH_DEPLOY_PRIVATE_KEY }}
+        username: ${{ secrets.DEPLOY_USER }}
+        script: |
+          rm -Rf /etc/nginx/sites-enabled/raffle-server
+          ln -sf ${{ secrets.DEPLOY_CURRENT_PATH }}/server/raffle-server.nginx /etc/nginx/sites-enabled/raffle-server 
+          service nginx reload
+    - name: Server Cleanup
+      uses: appleboy/ssh-action@master
+      with:
+        host: ${{ secrets.DEPLOY_HOST }}
+        key: ${{ secrets.SSH_DEPLOY_PRIVATE_KEY }}
+        username: ${{ secrets.DEPLOY_USER }}
+        script: |
+          cd ${{ secrets.DEPLOY_RELEASES_FOLDER }}
+          find . -maxdepth 1 -mindepth 1 -type d -a ! -regex '.*${{ steps.current-time-cleanup.outputs.formattedTime }}.*' -exec rm -Rf {} \+
+          
